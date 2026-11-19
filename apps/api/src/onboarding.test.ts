@@ -175,7 +175,7 @@ describe("self-service student onboarding over HTTP", () => {
     expect(lookup).not.toHaveBeenCalled();
   });
 
-  it("preserves an existing verified student's official passport", async () => {
+  it("does not call a finalized demo passport official without issuer trust", async () => {
     vi.spyOn(prisma.studentIdentity, "findUnique").mockResolvedValue({id: "i", provider: issuer, subject: NEW_SUB, role: "student", studentId: "stu-1", verifiedBy: "admin-1", verifiedAt: new Date()});
     const ensure = vi.spyOn(prisma.studentWorkspace, "create");
     const awards = [{recordId: "R1", studentId: "BTU-1", skillId: "S", name: "Prompting", category: "AI Skill", badgeCode: "B1", description: "d", dateEarned: "2026-01-01"}];
@@ -186,7 +186,7 @@ describe("self-service student onboarding over HTTP", () => {
     vi.spyOn(prisma.version, "findMany").mockResolvedValue([version] as never);
     const t = await token(NEW_SUB);
     const passport = await call("/me/passport", t);
-    expect(passport.body).toMatchObject({official: true, passportId: "ORX-0001", originalIssueDate: "2026-01-02", universityVerified: true, verification: "UNIVERSITY_VERIFIED", counts: {skills: 1, badges: 1, versions: 1}});
+    expect(passport.body).toMatchObject({official: false, issuerTrust: "UNCONFIRMED", passportId: "ORX-0001", originalIssueDate: "2026-01-02", universityVerified: true, verification: "UNIVERSITY_VERIFIED", counts: {skills: 1, badges: 1, versions: 1}});
     const versions = await call("/me/passport/versions", t);
     expect(versions.body).toHaveLength(1);
     expect(ensure).not.toHaveBeenCalled();

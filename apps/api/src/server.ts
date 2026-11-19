@@ -985,7 +985,7 @@ class ApiController {
       passportId: null,
       workspaceId: user.workspaceId ?? null,
       verification: user.verification,
-      universityVerified: user.verification === "UNIVERSITY_VERIFIED" || !!passport,
+      universityVerified: user.verification === "UNIVERSITY_VERIFIED",
       account: {email: user.email ?? null},
       originalIssueDate: null,
       student: null,
@@ -1002,11 +1002,18 @@ class ApiController {
    const finalized = await prisma.version.count({where: {passportId: passport.id, finalizedSlot: {not: null}}});
    const awardCount = (latest.snapshot as unknown as Snapshot).awards.length;
    res.json({
-     official: true,
+     // A finalized Devnet demo credential does not prove BTU endorsement.
+     // "official" requires independently verified issuer trust, not mere issuance.
+     official: liveProof.officialBtu,
+     issuerTrust: liveProof.issuerTrust,
+     blockchainRegistration: liveProof.registration,
+     onChainRevocation: liveProof.revocation ?? "UNKNOWN",
+     documentIntegrity: liveProof.integrity,
      status: studentLatest.revocation ? studentLatest.revocation.state === "REVOKED" ? "REVOKED" : "REVOCATION_PENDING" : studentLatest.credentialStatus === "UNKNOWN" ? "VERIFICATION_UNAVAILABLE" : "ISSUED",
      workspaceId: null,
      verification: user.verification,
-     universityVerified: true,
+     // Identity verification and institutional credential attestation differ.
+     universityVerified: user.verification === "UNIVERSITY_VERIFIED",
      account: {email: user.email ?? null},
      counts: {skills: awardCount, badges: awardCount, versions: finalized},
      passportId: passport.publicId,
