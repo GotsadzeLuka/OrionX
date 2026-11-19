@@ -51,3 +51,11 @@ export const dateLabel = (date: string) =>
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(date));
+
+
+/** Issuance is independent of the university endorsement flag.
+ * A finalized Devnet demo must remain viewable even when official=false.
+ */
+export function isIssuedPassport(passport: Passport | null | undefined): boolean {
+  return !!passport?.latest && !!passport.passportId;
+}
