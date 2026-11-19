@@ -39,7 +39,8 @@
     "preview:pdf": "tsx scripts/preview-pdf.ts",
     "verify:independent": "node --import tsx scripts/verify-independent.ts",
     "test:verification:live": "node --import tsx scripts/test-verification-live.ts",
-    "test:revocation:integration": "node --import tsx scripts/test-revocation-integration.ts"
+    "test:revocation:integration": "node --import tsx scripts/test-revocation-integration.ts",
+    "test:worker:crash": "node --import tsx scripts/test-worker-lease-recovery.ts"
   },
   "devDependencies": {
     "esbuild": "0.27.0",

@@ -1004,7 +1004,7 @@ class ApiController {
    res.json({
      // A finalized Devnet demo credential does not prove BTU endorsement.
      // "official" requires independently verified issuer trust, not mere issuance.
-     official: liveProof.officialBtu,
+     official: liveProof.officialBtu === true,
      issuerTrust: liveProof.issuerTrust,
      blockchainRegistration: liveProof.registration,
      onChainRevocation: liveProof.revocation ?? "UNKNOWN",

@@ -23,6 +23,11 @@ export type PassportVersion = {
 };
 export type Passport = {
   official: boolean;
+  /** Independently verified institutional issuer trust, not just a Devnet entry. */
+  issuerTrust?: "BTU_CONFIRMED" | "DEMO" | "UNCONFIRMED" | "UNAUTHORIZED";
+  blockchainRegistration?: "REGISTERED" | "UNKNOWN" | "PENDING";
+  onChainRevocation?: "VALID" | "REVOKED" | "UNKNOWN";
+  documentIntegrity?: "NOT_CHECKED" | "MATCH" | "MISMATCH";
   status: string;
   passportId: string | null;
   workspaceId: string | null;
