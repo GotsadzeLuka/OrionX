@@ -10,5 +10,5 @@ try {
  if(!id) throw Error("No queued job to claim");
  process.stdout.write("CLAIMED:"+id+"\n");
  // Deliberately keep the process alive until the test terminates it.
- await new Promise<void>(()=>{});
+ await new Promise<void>(() => { setInterval(() => {}, 1000); });
 } finally {await db.$disconnect();}
