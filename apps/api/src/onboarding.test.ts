@@ -184,12 +184,31 @@ describe("self-service student onboarding over HTTP", () => {
     vi.spyOn(prisma.version, "findUnique").mockResolvedValue(version as never);
     vi.spyOn(prisma.version, "count").mockResolvedValue(1);
     vi.spyOn(prisma.version, "findMany").mockResolvedValue([version] as never);
+    vi.spyOn(core,"verifyDevnet").mockResolvedValue({registration:"REGISTERED",revocation:"VALID",integrity:"NOT_CHECKED",issuerTrust:"DEMO",officialBtu:false} as never);
     const t = await token(NEW_SUB);
     const passport = await call("/me/passport", t);
-    expect(passport.body).toMatchObject({official: false, issuerTrust: "UNCONFIRMED", passportId: "ORX-0001", originalIssueDate: "2026-01-02", universityVerified: true, verification: "UNIVERSITY_VERIFIED", counts: {skills: 1, badges: 1, versions: 1}});
+    expect(passport.body).toMatchObject({official: false, issuerTrust: "DEMO", latest: {issuerTrust:"DEMO"},, passportId: "ORX-0001", originalIssueDate: "2026-01-02", universityVerified: true, verification: "UNIVERSITY_VERIFIED", counts: {skills: 1, badges: 1, versions: 1}});
     const versions = await call("/me/passport/versions", t);
     expect(versions.body).toHaveLength(1);
     expect(ensure).not.toHaveBeenCalled();
+  });
+
+  it("exposes distinct trusted, revoked and RPC-unavailable states without conflating endorsement", async () => {
+    vi.spyOn(prisma.studentIdentity,"findUnique").mockResolvedValue({id:"id",provider:issuer,subject:NEW_SUB,role:"student",studentId:"stu",verifiedBy:"admin",verifiedAt:new Date()});
+    vi.spyOn(prisma.passport,"findUnique").mockResolvedValue({id:"p",publicId:"ORX-TEST",studentId:"stu",latestFinalizedVersion:1,activeVersionId:null,initialIssueDate:new Date("2026-01-02"),student:{firstName:"Test",lastName:"User",program:"AI",educationLevel:"BSc"}} as never);
+    vi.spyOn(prisma.version,"findUnique").mockResolvedValue({number:1,state:"COMPLETED",code:"D1-TEST",pageCount:2,createdAt:new Date(),finalizedAt:new Date(),snapshot:{student:{initialIssueDate:"2026-01-02"},awards:[]},finalizedSlot:5n,storageKey:"private/test.pdf",pdfSha256:"a".repeat(64),revocation:null} as never);
+    vi.spyOn(prisma.version,"count").mockResolvedValue(1);
+    const proof=vi.spyOn(core,"verifyDevnet");
+    const t=await token(NEW_SUB);
+    proof.mockResolvedValue({registration:"REGISTERED",revocation:"VALID",integrity:"NOT_CHECKED",issuerTrust:"BTU_CONFIRMED",officialBtu:true} as never);
+    const trusted=await call("/me/passport",t);
+    expect(trusted.body).toMatchObject({official:true,status:"ISSUED",issuerTrust:"BTU_CONFIRMED",latest:{issuerTrust:"BTU_CONFIRMED"}});
+    proof.mockResolvedValue({registration:"REGISTERED",revocation:"REVOKED",integrity:"NOT_CHECKED",issuerTrust:"BTU_CONFIRMED",officialBtu:false} as never);
+    const revoked=await call("/me/passport",t);
+    expect(revoked.body).toMatchObject({official:false,status:"REVOKED",onChainRevocation:"REVOKED",latest:{credentialStatus:"REVOKED"}});
+    proof.mockResolvedValue({registration:"UNKNOWN",revocation:"UNKNOWN",integrity:"NOT_CHECKED",issuerTrust:"UNCONFIRMED",officialBtu:false} as never);
+    const unavailable=await call("/me/passport",t);
+    expect(unavailable.body).toMatchObject({official:false,status:"VERIFICATION_UNAVAILABLE",onChainRevocation:"UNKNOWN",latest:{credentialStatus:"UNKNOWN"}});
   });
 
   it("shows a verified-but-unissued student an empty passport marked university verified", async () => {
