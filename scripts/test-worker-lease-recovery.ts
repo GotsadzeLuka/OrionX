@@ -30,7 +30,7 @@ async function main() {
         "-- Supabase-only helper not present in disposable PostgreSQL")
       .replaceAll("public.",'"'+schema+'".')
   ));
-  const roleSetup="DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END $;";
+  const roleSetup="DO \u0024\u0024 BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END \u0024\u0024;";
   const path=resolve(temp,"setup.sql");
   await writeFile(path,roleSetup+'CREATE SCHEMA IF NOT EXISTS "'+schema+'"; SET search_path TO "'+schema+'"; ALTER DEFAULT PRIVILEGES IN SCHEMA "'+schema+'" GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;\n'+statements.join("\n"));
   const setup=spawnSync(process.execPath,["node_modules/prisma/build/index.js","db","execute","--schema","packages/db/prisma/schema.prisma","--file",path],{env:{...process.env,DATABASE_URL:url.toString(),DIRECT_URL:url.toString()},encoding:"utf8"});
