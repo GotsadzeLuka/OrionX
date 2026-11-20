@@ -187,7 +187,7 @@ describe("self-service student onboarding over HTTP", () => {
     vi.spyOn(core,"verifyDevnet").mockResolvedValue({registration:"REGISTERED",revocation:"VALID",integrity:"NOT_CHECKED",issuerTrust:"DEMO",officialBtu:false} as never);
     const t = await token(NEW_SUB);
     const passport = await call("/me/passport", t);
-    expect(passport.body).toMatchObject({official: false, issuerTrust: "DEMO", latest: {issuerTrust:"DEMO"},, passportId: "ORX-0001", originalIssueDate: "2026-01-02", universityVerified: true, verification: "UNIVERSITY_VERIFIED", counts: {skills: 1, badges: 1, versions: 1}});
+    expect(passport.body).toMatchObject({official: false, issuerTrust: "DEMO", latest: {issuerTrust:"DEMO"}, passportId: "ORX-0001", originalIssueDate: "2026-01-02", universityVerified: true, verification: "UNIVERSITY_VERIFIED", counts: {skills: 1, badges: 1, versions: 1}});
     const versions = await call("/me/passport/versions", t);
     expect(versions.body).toHaveLength(1);
     expect(ensure).not.toHaveBeenCalled();
