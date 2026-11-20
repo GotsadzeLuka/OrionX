@@ -58,6 +58,10 @@ describe("institutional issuer trust is fail closed",() => {
     vi.stubEnv("BTU_TRUST_MANIFEST_PATH",path+".missing");
     expect(await issuerTrust(ctx)).toBe("UNAUTHORIZED");
   });
+  it("accepts valid epoch bounds encoded as integer strings", async () => {
+    await fixture(m=>{m.epochs=[{number:1,issuer:ctx.issuer,validFrom:"900",validUntil:"1100"}]});
+    expect(await issuerTrust(ctx)).toBe("BTU_CONFIRMED");
+  });
   it("does not allow invalid or missing epoch time bounds to grant trust", async () => {
     await fixture(m=>{m.epochs=[{number:1,issuer:ctx.issuer,validFrom:"garbage"}]});
     expect(await issuerTrust(ctx)).toBe("UNAUTHORIZED");

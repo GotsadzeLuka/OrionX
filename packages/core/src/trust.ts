@@ -14,7 +14,7 @@ function encodedBytes(value: unknown, length: number): Buffer | null {
 
 function epochTime(value: unknown): bigint | null {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
-  if (typeof value === "string" && /^\\d{1,20}$/.test(value)) return BigInt(value);
+  if (typeof value === "string" && /^\d{1,20}$/.test(value)) return BigInt(value);
   return null;
 }
 
