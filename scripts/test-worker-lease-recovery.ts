@@ -19,9 +19,20 @@ async function main() {
  const a=new PrismaClient({datasourceUrl:url.toString()}), b=new PrismaClient({datasourceUrl:url.toString()});
  let child:ChildProcess|undefined;
  try {
-  const migration=(await readFile("packages/db/prisma/migrations/0001_architecture/migration.sql","utf8")).replaceAll("public.",'"'+schema+'".');
+  // Use the complete repository schema, not just the initial architecture.
+  // Later migrations define queue constraints and revocation privileges used
+  // by the current Prisma Client. Identical setup to the isolated validator.
+  const migrations = ["0001_architecture", "0002_proof_context", "0003_student_workspace",
+    "0004_assessments", "0005_revocation", "0006_revocation_function_privileges"];
+  const statements=await Promise.all(migrations.map(async name =>
+    (await readFile(`packages/db/prisma/migrations/${name}/migration.sql`,"utf8"))
+      .replace("REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated;",
+        "-- Supabase-only helper not present in disposable PostgreSQL")
+      .replaceAll("public.",'"'+schema+'".')
+  ));
+  const roleSetup="DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END $;";
   const path=resolve(temp,"setup.sql");
-  await writeFile(path,'CREATE SCHEMA IF NOT EXISTS "'+schema+'"; SET search_path TO "'+schema+'";\n'+migration);
+  await writeFile(path,roleSetup+'CREATE SCHEMA IF NOT EXISTS "'+schema+'"; SET search_path TO "'+schema+'"; ALTER DEFAULT PRIVILEGES IN SCHEMA "'+schema+'" GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;\n'+statements.join("\n"));
   const setup=spawnSync(process.execPath,["node_modules/prisma/build/index.js","db","execute","--schema","packages/db/prisma/schema.prisma","--file",path],{env:{...process.env,DATABASE_URL:url.toString(),DIRECT_URL:url.toString()},encoding:"utf8"});
   if(setup.status!==0)throw Error("Isolated queue schema failed: "+setup.stderr);
   const job=await a.job.create({data:{type:"SYNC",stage:"SYNC",idempotencyKey:"crash:"+randomBytes(8).toString("hex")}});
