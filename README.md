@@ -4,6 +4,13 @@ BTU AI Skills Digital Passport with a complete, evidence-backed issuance flow: v
 
 The project emphasizes **document integrity, safe retries, cumulative version history, and reproducible proof**, not just a passport preview.
 
+
+## November 2026 hardening review (draft PR)
+
+The credential endpoint separates **issued** (a stored blockchain-finalized PDF), **institutionally endorsed** (independently verified issuer root), and **identity-verified** (account binding). A finalized synthetic Devnet document remains accessible and is never labeled officially BTU-endorsed merely because its issuance succeeded. See [institutional trust boundaries](docs/INSTITUTIONAL_TRUST.md).
+
+The [worker crash test](docs/WORKER_CRASH_TESTING.md) uses a disposable PostgreSQL schema, a separately launched process, SIGKILL, lease expiry/reclaim, and stale-owner fencing. It is wired to the isolated workflow via `npm run test:worker:crash`. **Do not confuse the committed test implementation with a passing run:** the latest PR's GitHub-hosted jobs failed before any executable steps. Approved live Devnet revoked fixtures also remain unavailable; the read-only optional check is not strict on-chain revocation proof.
+
 ## Processing modes: automatic and administrator-triggered
 
 OrionX **implements both unattended background processing and administrator-triggered processing**. These are two execution modes of the same durable PostgreSQL queue and issuance pipeline, not separate implementations.

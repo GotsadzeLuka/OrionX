@@ -9,7 +9,7 @@ import {Shell} from "@/components/shell";
 import {Badge, EmptyState, ErrorState, PageHeading, Skeleton} from "@/components/ui";
 import {API, useSession} from "@/lib/session";
 import {useResource} from "@/lib/use-resource";
-import {type Passport, type PassportVersion} from "@/lib/passport";
+import {isIssuedPassport, type Passport, type PassportVersion} from "@/lib/passport";
 
 const issuedPdfUrl = (version: number, inline: boolean) =>
   `${API}/api/v1/me/passport/versions/${version}/download${inline ? "?inline=1" : ""}`;
@@ -20,7 +20,7 @@ export default function PassportPage() {
   const {session, loading} = useSession();
   const enabled = !!session && (session.role === "student" || !!session.studentId);
   const passport = useResource<Passport>("/me/passport", enabled);
-  const issued = !!passport.data?.official && !!passport.data.latest && !!passport.data.passportId;
+  const issued = isIssuedPassport(passport.data);
   const history = useResource<PassportVersion[]>("/me/passport/versions", enabled && issued);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const p = passport.data;
