@@ -5,13 +5,14 @@ import {resolve} from "node:path";
 import {spawn, spawnSync, type ChildProcess} from "node:child_process";
 import {setTimeout as delay} from "node:timers/promises";
 import {randomBytes} from "node:crypto";
+import {once} from "node:events";
 import {Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction} from "@solana/web3.js";
 import {PrismaClient} from "@prisma/client";
 import {configAddress, epochAddress, revocationAddress, discriminator} from "../packages/core/src/protocol";
+import {applyIsolatedMigrations, requireIsolatedPostgres} from "./isolated-postgres";
 
 async function main() {
- const configured=process.env.DATABASE_URL;
- if(process.env.ORIONX_ISOLATED_TEST!=="1" || !configured || !["localhost","127.0.0.1"].includes(new URL(configured).hostname)) throw Error("Requires ORIONX_ISOLATED_TEST=1 and a disposable loopback PostgreSQL database. Never runs on Devnet or hosted databases.");
+ const configured = requireIsolatedPostgres();
  const temp=await mkdtemp(resolve(tmpdir(),"orionx-revocation-")),schema="revocation_"+randomBytes(6).toString("hex");
  const db=new PrismaClient({datasourceUrl:configured});
  const admin=Keypair.generate(),issuer=Keypair.generate(),attacker=Keypair.generate();
@@ -25,7 +26,7 @@ async function main() {
   const rust=resolve(temp,"programs/passport-registry/src/lib.rs");await writeFile(rust,(await readFile(rust,"utf8")).replace('pubkey!("BNcEvP3benzCX7tc1W2U6upZ5HVT4hzneZahVKMpCPiv")',`pubkey!("${admin.publicKey.toBase58()}")`));
   const build=spawnSync("cargo-build-sbf",["--tools-version","v1.57","--arch","v0","--manifest-path",resolve(temp,"programs/passport-registry/Cargo.toml"),"--sbf-out-dir",resolve(temp,"deploy")],{stdio:"inherit",env:process.env});
   if(build.status!==0)throw Error("Isolated SBF build failed");
-  validator=spawn(process.env.SOLANA_TEST_VALIDATOR_BIN || "solana-test-validator",["--reset","--quiet","--ledger",resolve(temp,"ledger"),"--rpc-port","18899","--faucet-port","18999","--gossip-port","18001","--dynamic-port-range","18002-18102","--bpf-program",program.toBase58(),resolve(temp,"deploy/passport_registry.so")],{stdio:["ignore","pipe","pipe"]});
+  validator=spawn(process.env.SOLANA_TEST_VALIDATOR_BIN || "solana-test-validator",["--reset","--quiet","--ledger",resolve(temp,"ledger"),"--bind-address","127.0.0.1","--gossip-host","127.0.0.1","--rpc-port","18899","--faucet-port","18999","--gossip-port","18001","--dynamic-port-range","18002-18102","--bpf-program",program.toBase58(),resolve(temp,"deploy/passport_registry.so")],{stdio:["ignore","pipe","pipe"]});
   validator.stdout?.on("data",b=>validatorLog+=b);validator.stderr?.on("data",b=>validatorLog+=b);
   const connection=new Connection("http://127.0.0.1:18899","finalized");
   await wait(async()=>{if(validator?.exitCode != null)throw Error("Validator exited: "+validatorLog);try{return !!await connection.getGenesisHash();}catch{return false;}},"local validator",60000);
@@ -35,11 +36,7 @@ async function main() {
   const database=new URL(configured);database.searchParams.set("schema",schema);
   Object.assign(process.env,{DATABASE_URL:database.toString(),DIRECT_URL:database.toString(),NODE_ENV:"test",APP_ENV:"test",CHAIN_MODE:"local",SOURCE_MODE:"fixture",STORAGE_MODE:"local",ARTIFACT_DIRECTORY:resolve(temp,"pdfs"),SOLANA_RPC_URL:"http://127.0.0.1:18899",SOLANA_EXPECTED_GENESIS_HASH:await connection.getGenesisHash(),SOLANA_PROGRAM_ID:program.toBase58(),SOLANA_ISSUER_KEYPAIR_JSON:JSON.stringify([...issuer.secretKey]),ISSUER_TRUST_MODE:"DEMO",REVOCATION_ENABLED:"true",WORKER_POLL_MS:"200",WORKER_LEASE_MS:"5000",SYNC_ENABLED:"true",SYNC_POLL_MS:"1000",ORIONX_RESOURCE_ROOT:temp});
   delete process.env.SOLANA_EXPECTED_ISSUER;delete process.env.VERCEL;delete process.env.WORKER_HOSTED;
-  const migrations=["0001_architecture","0002_proof_context","0003_student_workspace","0004_assessments","0005_revocation","0006_revocation_function_privileges"];
-  const sql=await Promise.all(migrations.map(async m=>(await readFile(`packages/db/prisma/migrations/${m}/migration.sql`,"utf8")).replace("REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated;", "-- Supabase-only optional helper grant; routine is absent in disposable PostgreSQL.").replaceAll("public.",`"${schema}".`)));
-  const roles="DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; END $$;";
-  await writeFile(resolve(temp,"setup.sql"),roles+`CREATE SCHEMA IF NOT EXISTS "${schema}"; SET search_path TO "${schema}"; ALTER DEFAULT PRIVILEGES IN SCHEMA "${schema}" GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;\n`+sql.join("\n"));
-  const setup=spawnSync(process.execPath,["node_modules/prisma/build/index.js","db","execute","--schema","packages/db/prisma/schema.prisma","--file",resolve(temp,"setup.sql")],{env:process.env,stdio:"inherit"});if(setup.status!==0)throw Error("Isolated migrations failed");
+  await applyIsolatedMigrations(database, temp);
   const {prisma}=await import("../packages/db/src");appDb=prisma;
   const privileges = await prisma.$queryRaw<Array<{anon_execute:boolean; authenticated_execute:boolean}>>`SELECT has_function_privilege('anon', ${schema + '.orionx_revocation_immutable()'}, 'EXECUTE') AS anon_execute, has_function_privilege('authenticated', ${schema + '.orionx_revocation_immutable()'}, 'EXECUTE') AS authenticated_execute`;
   assert.equal(privileges[0].anon_execute,false);assert.equal(privileges[0].authenticated_execute,false);
@@ -68,21 +65,39 @@ async function main() {
   await writeFile(resolve(temp,"fixtures/awards.csv"),[header,...initial,added.join(",")].join("\n")+"\n");
   await wait(async()=>await prisma.version.count({where:{number:2,state:"COMPLETED"}})===1,"automatic source change issuance");
   console.log("Automatic V2 finalized");
-  worker.kill("SIGTERM");await new Promise(r=>worker!.once("exit",r));worker=undefined;
+  const stopped = once(worker, "exit");
+  worker.kill("SIGTERM");
+  const shutdownTimeout = new AbortController();
+  try {
+    const [exitCode] = await Promise.race([
+      stopped,
+      delay(20_000, undefined, {signal: shutdownTimeout.signal}).then(() => {
+        throw new Error("Worker failed to drain after SIGTERM");
+      }),
+    ]);
+    assert.equal(exitCode, 0);
+  } finally {
+    shutdownTimeout.abort();
+  }
+  worker=undefined;
+  console.log("Worker drained and exited");
   assert.equal(await prisma.version.count(),2);
   const v1=await prisma.version.findFirstOrThrow({where:{number:1}}),v2=await prisma.version.findFirstOrThrow({where:{number:2}});
   const before=await connection.getAccountInfo(new PublicKey(v2.versionPda!),"finalized"),bytes=await artifactStore().get(v2.storageKey!);
   assert.equal((await verifyDevnet(v2.code,bytes)).integrity,"MATCH");assert.equal((await verifyDevnet(v1.code)).currency,"SUPERSEDED");
+  console.log("Original bytes and superseded version verified");
   const user={subject:"isolated-admin",provider:"test",role:"admin" as const,verification:"ADMIN" as const};
   await assert.rejects(()=>requestRevocation({...user,role:"student"},v2.passportId,2,"wrong award"));
   const unauthorized=new TransactionInstruction({programId:program,keys:[{pubkey:attacker.publicKey,isSigner:true,isWritable:true},ro(configAddress(program)[0]),ro(new PublicKey((await verifyDevnet(v2.code)).chainEvidence!.registryPda)),ro(new PublicKey(v2.versionPda!)),rw(revocationAddress(program,new PublicKey(v2.versionPda!))[0]),ro(SystemProgram.programId)],data:Buffer.concat([discriminator("global","revoke_version"),Buffer.alloc(32,1),Buffer.alloc(32,2)])});
   await assert.rejects(()=>send(new Transaction().add(unauthorized),[attacker]));
+  console.log("Unprivileged revocation was rejected");
   const requests=await Promise.all([1,2].map(()=>requestRevocation(user,v2.passportId,2,"incorrect award",["ISOLATED-NEW-AWARD"])));assert.equal(requests[0].id,requests[1].id);assert.equal(await prisma.revocation.count(),1);
   await assert.rejects(()=>requestRevocation(user,v2.passportId,2,"conflicting reason"));
   const processor=createJobProcessor();
   // Persisted intent + unavailable chain must NEVER become REVOKED.
   const rpc=process.env.SOLANA_RPC_URL;process.env.SOLANA_RPC_URL="http://127.0.0.1:1";
   await processor.processNext();assert.notEqual((await prisma.revocation.findUniqueOrThrow({where:{versionId:v2.id}})).state,"REVOKED");process.env.SOLANA_RPC_URL=rpc;
+  console.log("Unavailable RPC left the revocation pending");
   await prisma.job.update({where:{idempotencyKey:"revoke:"+v2.id},data:{availableAt:new Date()}});
   await wait(async()=>{await processor.processNext();return await prisma.revocationAttempt.count()===1;},"durable signed revocation attempt");
   const attempt=await prisma.revocationAttempt.findFirstOrThrow();assert.equal(attempt.state,"SIGNED");

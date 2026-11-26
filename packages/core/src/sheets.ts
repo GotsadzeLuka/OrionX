@@ -31,9 +31,9 @@ export function parseSheetRows(values: string[][], firstRow = 1): SourceRow[] {
 export async function sheetsClient() {
   const sheetId = process.env.GOOGLE_SHEET_ID, credentials = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!sheetId) throw Error("Google Sheets integration is not configured");
-  const {google} = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({credentials: credentials ? JSON.parse(credentials) : undefined, scopes: ["https://www.googleapis.com/auth/spreadsheets"]});
-  return {sheets: google.sheets({version: "v4", auth, timeout: 15000}), sheetId, tab: (process.env.GOOGLE_SHEET_TAB || "Passport Skill Records").replace(/'/g, "''")};
+  const {auth: googleAuth, sheets: createSheets} = await import("@googleapis/sheets");
+  const auth = new googleAuth.GoogleAuth({credentials: credentials ? JSON.parse(credentials) : undefined, scopes: ["https://www.googleapis.com/auth/spreadsheets"]});
+  return {sheets: createSheets({version: "v4", auth, timeout: 15000}), sheetId, tab: (process.env.GOOGLE_SHEET_TAB || "Passport Skill Records").replace(/'/g, "''")};
 }
 export async function fetchSheetRows(): Promise<SourceRow[]> {
   const {sheets, sheetId, tab} = await sheetsClient();

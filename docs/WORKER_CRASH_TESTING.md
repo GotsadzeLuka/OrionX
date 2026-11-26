@@ -1,15 +1,32 @@
-# Isolated worker crash recovery
+# Reproduce worker, validator and throughput checks
 
-Run `ORIONX_ISOLATED_TEST=1 DATABASE_URL=postgresql://... DIRECT_URL=... npm run test:worker:crash` **only against a disposable loopback PostgreSQL instance**.
+Use Node.js 22 and a disposable PostgreSQL 16 database on loopback. Match the credentials to your local test database.
 
-This test:
-1. Initializes an isolated schema using the existing base migration.
-2. Launches a separate Node child process that claims a real PostgreSQL job.
-3. Sends `SIGKILL`, observing the job remains durably leased.
-4. Simulates lease expiration by moving the PostgreSQL lease timestamp into the past.
-5. Reclaims the job with another worker, rejects stale-worker renewals/commits, and completes it once.
-6. Tests concurrent `FOR UPDATE SKIP LOCKED` claims with two clients and 30 distinct jobs.
+```sh
+npm ci
+npm run db:generate
+export ORIONX_ISOLATED_TEST=1
+export DATABASE_URL='postgresql://orionx:local@127.0.0.1:5432/orionx'
+export DIRECT_URL="$DATABASE_URL"
+npm run test:worker:crash
+npm run test:capacity
+```
 
-This specifically proves the queue's crash/lease/fencing behavior in PostgreSQL; it does **not** prove uninterrupted PDF rendering, RPC broadcast, Google Sheets writeback, or hosted unattended processing. It does not start a validator or mutate Devnet. The isolated revocation workflow runs it before the blockchain-dependent tests.
+The scripts apply all migrations in a uniquely named schema and remove that schema afterward. The crash test terminates a separate Node process after it claims a job, expires the database lease, and calls the production fencing code to check that the original owner cannot finish the job. Two PostgreSQL clients then claim 30 jobs and share one request-rate window.
 
-Verification status: implementation committed, no successful CI run observed yet.
+The benchmark loads 5,000 synthetic students, passports, awards, versions, and jobs. It times bulk persistence, 50 claims at concurrency two, and ten PDF renders. It reports claim percentiles, CPU and memory from the Node process, and runtime and database versions. The sample includes no blockchain writes. These numbers describe this workload and its local environment.
+
+## Isolated chain lifecycle
+
+The [workflow](../.github/workflows/revocation-integration.yml) pins and checksum-verifies the Agave compiler and validator tools. Install those tools and Rust, then run:
+
+```sh
+cargo test --locked
+npm run test:revocation:integration
+```
+
+The lifecycle compiles a temporary program with an ephemeral administrator and uses a loopback validator and synthetic fixture rows. It verifies finalized versions, scoped revocation authority, failed-RPC handling, recovery after recorded on-chain finality, and a corrected issuance while retaining historical evidence.
+
+## Rate limits in deployment
+
+`ORIONX_RATE_LIMIT_STORE=memory` maintains a bounded per-process request window. For a shared window across instances, apply migration `0007_api_rate_limits` and configure `ORIONX_RATE_LIMIT_STORE=postgres`. The adapter stores hashed bucket identifiers, coordinates counters in PostgreSQL, prunes old windows, and returns a retryable HTTP 503 when the database cannot enforce the limit. Keep authentication and public edge quotas aligned with your deployment's throughput.

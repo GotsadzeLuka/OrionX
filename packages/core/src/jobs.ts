@@ -5,6 +5,20 @@ export class LeaseLostError extends Error {
  constructor() { super('Job lease lost; processing stopped'); }
 }
 
+/** Update the job at the same transaction boundary as its stage effects. */
+export async function finishClaimedJob(
+  tx: Prisma.TransactionClient,
+  id: string,
+  owner: string,
+  data: Prisma.JobUpdateManyMutationInput,
+) {
+  const result = await tx.job.updateMany({
+    where: {id, leaseOwner: owner, state: "RENDERED", leaseUntil: {gt: new Date()}},
+    data: {...data, lastError: null, leaseOwner: null, leaseUntil: null},
+  });
+  if (result.count !== 1) throw new LeaseLostError();
+}
+
 export function jobRetryDelay(error: unknown, attempts: number) {
  const value = error as {code?: unknown; response?: {status?: number; headers?: {get?: (name: string) => string | null}}};
  const status = Number(value?.response?.status ?? value?.code);

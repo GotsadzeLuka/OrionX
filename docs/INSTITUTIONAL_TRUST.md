@@ -7,7 +7,7 @@ A credential finalized on Solana Devnet is **not automatically an officially end
 - `blockchainRegistration`: whether the chain registration was observed; an unavailable RPC returns `UNKNOWN`.
 - `onChainRevocation`: `VALID`, `REVOKED`, or `UNKNOWN`.
 - `documentIntegrity`: comparison of submitted/stored document bytes with chain hash, or `NOT_CHECKED`.
-- `official`: retains the legacy boolean for compatibility, but is now grounded in the existing `verifyDevnet().officialBtu` result instead of treating issuance alone as institutional trust.
+- `official`: retains the legacy boolean. It requires registered, currently valid proof, verified institutional trust, and no local pending revocation.
 - `status: ISSUED` describes a finalized stored version and is not synonymous with institutional endorsement.
 
 A saved PDF, blockchain account, verified account identity, and third-party university attestation establish different claims.

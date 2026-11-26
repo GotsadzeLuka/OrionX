@@ -11,12 +11,13 @@ if (!args.includes('--environment') || !['development', 'preview', 'production']
 }
 const write = args.includes('--write');
 const replace = args.includes('--replace');
-const cli = resolve(repositoryRoot, 'node_modules/vercel/dist/index.js');
+const npmCli = process.env.npm_execpath;
+if (!npmCli) throw new Error('Run this command with npm run env:sync.');
 const link = JSON.parse(readFileSync(resolve(repositoryRoot, '.vercel/project.json'), 'utf8'));
 const env = environment(repositoryRoot, target === 'development' ? 'development' : 'production');
 const values = args.includes('--file') ? parseEnv(readFileSync(resolve(repositoryRoot, args[args.indexOf('--file') + 1]), 'utf8')) : env;
 function vercel(command, input) {
-  const result = spawnSync(process.execPath, [cli, ...command, '--non-interactive'], {
+  const result = spawnSync(process.execPath, [npmCli, 'exec', '--yes', '--package=vercel@67.0.0', '--', 'vercel', ...command, '--non-interactive'], {
     cwd: repositoryRoot, env, input, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
   });
   // CLI diagnostics may include supplied values. Only emit our value-free errors.

@@ -9,7 +9,7 @@ import {writeBack} from "./writeback";
 import {DomainError} from "./errors";
 import {PDFDocument} from "pdf-lib";
 import {PublicKey} from "@solana/web3.js";
-import {claimJob, renewJobLease, withJobLease, jobRetryDelay} from "./jobs";
+import {claimJob, finishClaimedJob, renewJobLease, withJobLease, jobRetryDelay} from "./jobs";
 import {processRevocation} from "./revocation";
 import {randomUUID} from "node:crypto";
 
@@ -21,10 +21,8 @@ export function createJobProcessor(options: {writebackLimit?: number} = {}) {
  const schemaName = new URL(process.env.DATABASE_URL || "postgresql://localhost/demo").searchParams.get("schema") || "public";
  if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(schemaName)) throw Error("Invalid database schema");
  const POLL_MS = positiveInteger("WORKER_POLL_MS", 3000), LEASE_MS = positiveInteger("WORKER_LEASE_MS", 120000), MAX_ATTEMPTS = positiveInteger("WORKER_MAX_ATTEMPTS", 5);
-async function fenced(tx: Prisma.TransactionClient, id: string, data: Prisma.JobUpdateManyMutationInput) {
- const result = await tx.job.updateMany({where: {id, leaseOwner: workerId, state: "RENDERED", leaseUntil: {gt: new Date()}}, data: {...data, lastError: null, leaseOwner: null, leaseUntil: null}});
- if (result.count !== 1) throw Error("Lease lost before commit");
-}
+ const fenced = (tx: Prisma.TransactionClient, id: string, data: Prisma.JobUpdateManyMutationInput) =>
+  finishClaimedJob(tx, id, workerId, data);
 async function processClaim(id: string, checkLease: () => Promise<void>) {
  console.log(JSON.stringify({event: "JOB_LOADING", id, workerId}));
  const job = await prisma.job.findUniqueOrThrow({where: {id}, include: {version: {include: {passport: true}}}});
@@ -150,9 +148,10 @@ async function fail(id: string, error: unknown) {
  const job = await prisma.job.findUnique({where: {id}});
  if (!job || job.leaseOwner !== workerId) return;
  const attempts = job.attempts + 1, permanent = error instanceof DomainError && !error.retryable;
+ const lastError = error instanceof DomainError ? error.message.slice(0, 500) : "Processing failed; check service diagnostics";
  await prisma.$transaction(async tx => {
- const changed = await tx.job.updateMany({where: {id, leaseOwner: workerId, state: "RENDERED", leaseUntil: {gt: new Date()}}, data: {attempts, lastError: error instanceof Error ? error.message.slice(0, 500) : "Processing failed", state: permanent ? "BLOCKED_CONFLICT" : attempts >= MAX_ATTEMPTS ? "FAILED_PERMANENT" : "RETRY_WAIT", availableAt: new Date(Date.now() + jobRetryDelay(error, attempts)), leaseOwner: null, leaseUntil: null}});
- if (changed.count && job.type === "REVOKE" && job.versionId) await tx.revocation.update({where: {versionId: job.versionId}, data: {state: permanent || attempts >= MAX_ATTEMPTS ? "FAILED" : "PENDING", lastError: error instanceof Error ? error.message.slice(0, 500) : "Processing failed"}});
+ const changed = await tx.job.updateMany({where: {id, leaseOwner: workerId, state: "RENDERED", leaseUntil: {gt: new Date()}}, data: {attempts, lastError, state: permanent ? "BLOCKED_CONFLICT" : attempts >= MAX_ATTEMPTS ? "FAILED_PERMANENT" : "RETRY_WAIT", availableAt: new Date(Date.now() + jobRetryDelay(error, attempts)), leaseOwner: null, leaseUntil: null}});
+ if (changed.count && job.type === "REVOKE" && job.versionId) await tx.revocation.update({where: {versionId: job.versionId}, data: {state: permanent || attempts >= MAX_ATTEMPTS ? "FAILED" : "PENDING", lastError}});
  });
 }
  return {

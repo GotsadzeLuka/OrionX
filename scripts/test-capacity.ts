@@ -1,19 +1,26 @@
 import assert from 'node:assert/strict';
 import {PrismaClient} from '@prisma/client';
 import {randomBytes} from 'node:crypto';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
-import {spawnSync} from 'node:child_process';
+import {mkdtemp, rm} from 'node:fs/promises';
+import {availableParallelism, cpus, tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {fixtureRows} from '../packages/core/src/fixtures';
 import {snapshot,newCode,sha256} from '../packages/core/src';
 import {renderPassportPdf} from '../packages/core/src/templates';
 import {claimJob} from '../packages/core/src/jobs';
+import {applyIsolatedMigrations, requireIsolatedPostgres} from './isolated-postgres';
 async function main(){
- const name='orionx_load_'+randomBytes(5).toString('hex'),base=process.env.DIRECT_URL||process.env.DATABASE_URL!;
- const url=new URL(base);url.searchParams.set('schema',name);const admin=new PrismaClient({datasourceUrl:base}),a=new PrismaClient({datasourceUrl:url.toString()}),b=new PrismaClient({datasourceUrl:url.toString()});
- const migration=(await readFile('packages/db/prisma/migrations/0001_architecture/migration.sql','utf8')).replaceAll('public.','"'+name+'".');
- const sql='/tmp/'+name+'.sql';await writeFile(sql,'CREATE SCHEMA IF NOT EXISTS "'+name+'"; SET search_path TO "'+name+'";\n'+migration+'\n'+(await readFile('packages/db/prisma/migrations/0002_proof_context/migration.sql','utf8')).split('\n')[0]);
- try{
-  const setup=spawnSync(process.execPath,['node_modules/prisma/build/index.js','db','execute','--schema','packages/db/prisma/schema.prisma','--file',sql],{env:{...process.env,DATABASE_URL:url.toString(),DIRECT_URL:url.toString()},encoding:'utf8'});if(setup.status!==0)throw Error('Capacity schema initialization failed');
+ const name = 'orionx_load_' + randomBytes(5).toString('hex');
+ const base = requireIsolatedPostgres();
+ const url = new URL(base);
+ url.searchParams.set('schema', name);
+ const admin = new PrismaClient({datasourceUrl: base});
+ const a = new PrismaClient({datasourceUrl: url.href}), b = new PrismaClient({datasourceUrl: url.href});
+ const temp = await mkdtemp(join(tmpdir(), 'orionx-capacity-'));
+ try {
+  await applyIsolatedMigrations(url, temp);
+  const [version] = await a.$queryRaw<Array<{version: string}>>`SHOW server_version`;
+  const usageStart = process.cpuUsage();
   const seed=fixtureRows()[0],count=5000,rows=Array.from({length:count},(_,i)=>{const student={...seed.student,studentId:'LOAD-'+i,email:'load-'+i+'@example.org',passportId:'DEMO-LOAD-'+i};const award={...seed.award,studentId:student.studentId,recordId:'LOAD-REC-'+i};return {student,award,snapshot:snapshot(student,[award],1,newCode())}});
   const started=performance.now();
   await a.student.createMany({data:rows.map((r,i)=>({id:'student-'+i,externalId:r.student.studentId,email:r.student.email,firstName:r.student.firstName,lastName:r.student.lastName,program:r.student.program,educationLevel:r.student.educationLevel,status:r.student.status}))});
@@ -23,13 +30,43 @@ async function main(){
   await a.versionAward.createMany({data:rows.map((_,i)=>({versionId:'version-'+i,awardId:'award-'+i,displayOrder:0}))});
   await a.job.createMany({data:rows.map((_,i)=>({versionId:'version-'+i,type:'ISSUE',stage:'PDF',idempotencyKey:'load:'+i}))});
   const persistSeconds=(performance.now()-started)/1000;assert.equal(await a.student.count(),count);assert.equal(await a.job.count(),count);
-  const claimed:string[]=[];const claimStart=performance.now();
-  for(let i=0;i<25;i++){const ids=await Promise.all([claimJob(a,name,'worker-a',120000),claimJob(b,name,'worker-b',120000)]);for(const id of ids){assert.ok(id);claimed.push(id!)}}
-  assert.equal(new Set(claimed).size,50);const claimSeconds=(performance.now()-claimStart)/1000;
-  const renderStart=performance.now();let totalBytes=0;for(const row of rows.slice(0,10))totalBytes+=(await renderPassportPdf(row.snapshot)).length;
-  const renderSeconds=(performance.now()-renderStart)/1000;
-  await mkdir('docs/evidence',{recursive:true});await writeFile('docs/evidence/capacity.json',JSON.stringify({environment:'ISOLATED_POSTGRES_SCHEMA',syntheticPassports:count,syntheticAwards:count,syntheticVersions:count,durableJobs:count,persistSeconds,claimedJobs:50,concurrentClaimers:2,duplicateClaims:0,claimSeconds,samplePdfs:10,samplePdfBytes:totalBytes,renderSeconds,fullChainLoadTest:false,devnetTransactions:0,interpretation:'Measured persistence, actual queue claim function and PDF samples. These measurements do not establish full issuance throughput or a burst SLA.',checkedAt:new Date().toISOString()},null,2)+'\n');
-  console.log(JSON.stringify({passports:count,persistSeconds,uniqueConcurrentClaims:50,claimSeconds,samplePdfs:10,renderSeconds}));
- }finally{await a.$disconnect();await b.$disconnect();await admin.$executeRawUnsafe('DROP SCHEMA IF EXISTS "'+name+'" CASCADE');await admin.$disconnect()}
+  const claimed = new Set<string>();
+  const claimLatencyMs: number[] = [];
+  const claimStart = performance.now();
+  const timedClaim = async (db: PrismaClient, worker: string) => {
+   const start = performance.now();
+   const id = await claimJob(db, name, worker, 120_000);
+   claimLatencyMs.push(performance.now() - start);
+   return id;
+  };
+  for (let round = 0; round < 25; round++) {
+   for (const id of await Promise.all([timedClaim(a, 'worker-a'), timedClaim(b, 'worker-b')])) {
+    assert.ok(id);
+    assert.equal(claimed.has(id), false);
+    claimed.add(id);
+   }
+  }
+  assert.equal(claimed.size, 50);
+  const claimSeconds = (performance.now() - claimStart) / 1000;
+  claimLatencyMs.sort((left, right) => left - right);
+  const percentile = (p: number) => claimLatencyMs[Math.ceil(claimLatencyMs.length * p) - 1];
+  const renderStart = performance.now();
+  let totalBytes = 0;
+  for (const row of rows.slice(0,10)) totalBytes += (await renderPassportPdf(row.snapshot)).length;
+  const cpu = process.cpuUsage(usageStart);
+  console.log(JSON.stringify({
+   environment: {
+    node: process.version, postgres: version.server_version,
+    cpu: cpus()[0]?.model, availableParallelism: availableParallelism(), os: process.platform + '/' + process.arch,
+   },
+   syntheticPassports: count, syntheticAwards: count, syntheticVersions: count, durableJobs: count,
+   persistSeconds, claimSeconds, concurrentClaimers: 2, claimedJobs: claimed.size, failedClaims: 0,
+   claimLatencyMs: {p50: percentile(0.50), p95: percentile(0.95), p99: percentile(0.99)},
+   samplePdfs: 10, samplePdfBytes: totalBytes, renderSeconds: (performance.now() - renderStart) / 1000,
+   nodeCpuMs: (cpu.user + cpu.system) / 1000, nodeMaxRssKiB: process.resourceUsage().maxRSS,
+   devnetTransactions: 0,
+  }));
+
+ }finally{await a.$disconnect();await b.$disconnect();await admin.$executeRawUnsafe('DROP SCHEMA IF EXISTS "'+name+'" CASCADE');await admin.$disconnect();await rm(temp,{recursive:true,force:true})}
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1});

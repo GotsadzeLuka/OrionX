@@ -8,12 +8,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@googleapis/sheets": "18.1.3",
     "@orionx/db": "*",
     "@pdf-lib/fontkit": "1.1.1",
-    "@solana/web3.js": "^1.98.0",
+    "@solana/web3.js": "1.98.4",
     "bs58": "4.0.1",
     "csv-parse": "7.0.2",
-    "googleapis": "^144.0.0",
     "jose": "^5.9.6",
     "jsqr": "^1.4.0",
     "pdf-lib": "^1.17.1",

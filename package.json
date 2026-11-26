@@ -10,7 +10,7 @@
     "build": "npm run build -w @orionx/web",
     "prepare:api-resources": "node scripts/prepare-api-resources.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:services": "node scripts/with-env.mjs --mode development vercel dev --local",
+    "dev:services": "node scripts/with-env.mjs --mode development npx --yes vercel@67.0.0 dev --local",
     "dev:web": "npm run dev -w @orionx/web",
     "dev:api": "npm run dev -w @orionx/api",
     "dev:worker": "npm run dev -w @orionx/worker",
@@ -19,7 +19,7 @@
     "db:push": "npm run push -w @orionx/db",
     "test": "npm run test:config && npm run test:runtime && npm run test --workspaces --if-present",
     "test:runtime": "node --test scripts/runtime.test.cjs",
-    "env:pull": "vercel env pull .env.local --environment=development --yes",
+    "env:pull": "npx --yes vercel@67.0.0 env pull .env.local --environment=development --yes",
     "env:check": "node scripts/with-env.mjs tsx scripts/check-env.ts",
     "check:readiness": "node scripts/with-env.mjs tsx scripts/check-readiness.ts",
     "test:live": "node scripts/with-env.mjs tsx scripts/check-live.ts",
@@ -31,7 +31,7 @@
     "test:chain": "tsx scripts/test-chain.ts",
     "test:ledger": "node scripts/with-env.mjs tsx scripts/check-ledger.ts",
     "test:api": "node scripts/with-env.mjs tsx scripts/check-api.ts",
-    "test:capacity": "node scripts/with-env.mjs tsx scripts/test-capacity.ts",
+    "test:capacity": "node scripts/with-env.mjs node --import tsx scripts/test-capacity.ts",
     "test:pipeline": "node scripts/with-env.mjs tsx scripts/test-pipeline.ts",
     "test:pipeline:devnet": "node scripts/with-env.mjs tsx scripts/test-pipeline.ts --devnet",
     "deploy:devnet": "node scripts/with-env.mjs tsx scripts/deploy-devnet.ts",
@@ -43,10 +43,10 @@
     "test:worker:crash": "node --import tsx scripts/test-worker-lease-recovery.ts"
   },
   "devDependencies": {
+    "@solana/web3.js": "1.98.4",
+    "@types/node": "22.20.5",
     "esbuild": "0.27.0",
-    "typescript": "^5.7.3",
-    "vercel": "65.2.0",
-    "@types/node": "22.20.5"
+    "typescript": "^5.7.3"
   },
   "engines": {
     "node": "22.x"
@@ -57,7 +57,15 @@
     "deepmerge-ts": "8.0.0",
     "path-to-regexp@>=8.0.0 <9.0.0": "8.4.2",
     "rpc-websockets": {
-      "uuid": "11.1.0"
-    }
+      "uuid": "11.1.1"
+    },
+    "@prisma/config": {
+      "effect": "3.22.1"
+    },
+    "jayson": {
+      "uuid": "11.1.1",
+      ".": "4.1.1"
+    },
+    "js-yaml@>=4.0.0 <5.0.0": "4.3.2"
   }
 }
