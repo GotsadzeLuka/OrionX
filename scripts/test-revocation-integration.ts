@@ -56,7 +56,16 @@ async function main() {
   const init=new TransactionInstruction({programId:program,keys:[{pubkey:admin.publicKey,isSigner:true,isWritable:true},rw(configAddress(program)[0]),rw(epochAddress(program,configAddress(program)[0],1)[0]),ro(SystemProgram.programId)],data:Buffer.concat([discriminator("global","initialize_issuer"),issuer.publicKey.toBuffer(),Buffer.alloc(32)])});
   await send(new Transaction().add(init),[admin]);
   console.log("Isolated issuer initialized");
-  const startWorker=()=>{const p=spawn(process.execPath,["--import","tsx","apps/worker/src/worker.ts"],{env:process.env,stdio:["ignore","pipe","pipe"]});p.stderr?.on("data",b=>validatorLog+=b);return p;};
+  let workerLog = "";
+  const startWorker = () => {
+    const processHandle = spawn(process.execPath, ["--import", "tsx", "apps/worker/src/worker.ts"], {
+      env: process.env, stdio: ["ignore", "pipe", "pipe"],
+    });
+    const append = (chunk: Buffer) => { workerLog = (workerLog + chunk.toString()).slice(-6000); };
+    processHandle.stdout.on("data", append);
+    processHandle.stderr.on("data", append);
+    return processHandle;
+  };
   console.log("Starting unattended worker on the synthetic fixture source");
   worker=startWorker();
   await wait(async()=>await prisma.version.count({where:{number:1,state:"COMPLETED"}})===1,"automatic initial issuance");
@@ -72,7 +81,7 @@ async function main() {
     const [exitCode] = await Promise.race([
       stopped,
       delay(20_000, undefined, {signal: shutdownTimeout.signal}).then(() => {
-        throw new Error("Worker failed to drain after SIGTERM");
+        throw new Error("Worker failed to drain after SIGTERM\n" + workerLog);
       }),
     ]);
     assert.equal(exitCode, 0);

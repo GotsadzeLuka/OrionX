@@ -2,6 +2,7 @@
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
+  --font-georgian: "Noto Sans Georgian Variable";
   --background: #111214;
   --surface: #18191c;
   --surface-raised: #1e2024;

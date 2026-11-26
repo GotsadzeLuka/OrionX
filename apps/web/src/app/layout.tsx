@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Noto_Sans_Georgian } from "next/font/google";
 import { cookies } from "next/headers";
+import "@fontsource-variable/noto-sans-georgian";
 import { I18nProvider } from "@/lib/i18n-provider";
 import { isLocale, translate } from "@/lib/i18n";
 import "./globals.css";
@@ -13,7 +13,6 @@ const manrope = localFont({
   display: "swap",
   weight: "200 800",
 });
-const notoGeorgian = Noto_Sans_Georgian({ subsets: ["georgian"], weight: ["400","500","600","700"], display: "swap", variable: "--font-georgian" });
 export async function generateMetadata(): Promise<Metadata> {
   const choice = (await cookies()).get("orionx-locale")?.value;
   const locale = isLocale(choice) ? choice : "en";
@@ -41,7 +40,7 @@ export default async function RootLayout({
           }}
         />
       </head>
-      <body className={`${manrope.variable} ${notoGeorgian.variable}`}>
+      <body className={manrope.variable}>
         <a className="skip-link" href="#main-content">
           {translate(locale, "common.skip")}
         </a>
