@@ -23,6 +23,11 @@ export type PassportVersion = {
 };
 export type Passport = {
   official: boolean;
+  /** Independently verified institutional issuer trust, not just a Devnet entry. */
+  issuerTrust?: "BTU_CONFIRMED" | "DEMO" | "UNCONFIRMED" | "UNAUTHORIZED";
+  blockchainRegistration?: "REGISTERED" | "UNKNOWN" | "PENDING";
+  onChainRevocation?: "VALID" | "REVOKED" | "UNKNOWN";
+  documentIntegrity?: "NOT_CHECKED" | "MATCH" | "MISMATCH";
   status: string;
   passportId: string | null;
   workspaceId: string | null;
@@ -46,3 +51,11 @@ export const dateLabel = (date: string) =>
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(date));
+
+
+/** Issuance is independent of the university endorsement flag.
+ * A finalized Devnet demo must remain viewable even when official=false.
+ */
+export function isIssuedPassport(passport: Passport | null | undefined): boolean {
+  return !!passport?.latest && !!passport.passportId;
+}

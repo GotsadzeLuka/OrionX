@@ -31,4 +31,9 @@ async function run() {
   }
  } finally { await prisma.$disconnect(); }
 }
-run().catch(error => { console.error(error instanceof Error ? error.message : "Worker failed"); process.exitCode = 1; });
+run().then(() => {
+ // A signal ends the polling loop only after the current job and database
+ // disconnect are awaited. Exit explicitly so idle transport handles cannot
+ // keep a drained daemon alive through its supervisor's shutdown deadline.
+ process.stdout.write("OrionX worker drained\n", () => process.exit(0));
+}).catch(error => { console.error(error instanceof Error ? error.message : "Worker failed"); process.exitCode = 1; });

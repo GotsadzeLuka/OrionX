@@ -1,4 +1,5 @@
 import {describe,it,expect} from "vitest";
+import {deflateSync} from "node:zlib";
 import {decodeCode,encodeCode,reconcile,sha256,newCode,snapshot,extractVerificationCodesFromPdf} from "./index";
 import {fixtureRows} from "./fixtures";
 import {renderDemoPdf} from "./pdf";
@@ -9,6 +10,16 @@ describe("passport security",()=>{
   it("rejects malformed codes",()=>expect(()=>decodeCode("D1-NOT-VALID")).toThrow());
   it("detects exact-byte modification",()=>expect(sha256(Buffer.from("pdf"))).not.toBe(sha256(Buffer.from("pdf\n"))));
   it("rejects history removal",()=>{const a={recordId:"r",studentId:"s",skillId:"k",name:"AI",category:"AI Skill" as const,badgeCode:"BDG-AI-001",description:"ok",dateEarned:"2026-10-01"};expect(()=>reconcile([a],[])).toThrow();expect(()=>reconcile([a],[{...a,name:"changed"}])).toThrow()});
+  it("discovers a canonical verification code in a compressed PDF text stream", () => {
+    const code = newCode();
+    const stream = deflateSync(Buffer.from("BT (" + code + ") Tj ET"));
+    const document = Buffer.concat([
+      Buffer.from(`%PDF-1.5\n1 0 obj\n<< /Length ${stream.length} /Filter /FlateDecode >>\nstream\n`),
+      stream,
+      Buffer.from("\nendstream\nendobj\n%%EOF\n"),
+    ]);
+    expect(extractVerificationCodesFromPdf(document).codes).toEqual([code]);
+  });
   it("auto-discovers embedded QR verification code from both Demo and BTU PDF templates",async()=>{
     const row=fixtureRows()[0];
     const code=newCode();

@@ -309,3 +309,12 @@ model AwardWithdrawal {
   reason       String
   createdAt    DateTime @default(now())
 }
+
+model ApiRateLimitBucket {
+  bucketKey String @id @map("bucket_key")
+  windowId  BigInt @map("window_id")
+  hits      Int
+
+  @@index([windowId])
+  @@map("orionx_api_rate_limit_buckets")
+}

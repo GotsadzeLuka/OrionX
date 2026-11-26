@@ -25,7 +25,7 @@ import {
 } from "@/components/ui";
 import { useSession } from "@/lib/session";
 import { useResource } from "@/lib/use-resource";
-import { type Passport, type PassportVersion } from "@/lib/passport";
+import { isIssuedPassport, type Passport, type PassportVersion } from "@/lib/passport";
 
 export default function Dashboard() {
   const {t, locale} = useI18n();
@@ -38,6 +38,7 @@ export default function Dashboard() {
     eligible,
   );
   const p = passport.data;
+  const issued = isIssuedPassport(p);
   const awards = p?.latest?.revocation ? [] : versions.data?.[0]?.awards || [];
   const name = p?.student?.firstName || session?.email?.split("@")[0];
   return (
@@ -231,18 +232,18 @@ export default function Dashboard() {
                   <span className="mini-kicker">{t("dashboard.passportEyebrow")}</span>
                   <FileBadge2 size={32} strokeWidth={1.3} />
                   <h2>
-                    {p.official
+                    {issued
                       ? t("dashboard.growing")
                       : t("dashboard.ready")}
                   </h2>
                   <p>
-                    {p.official
+                    {issued
                       ? t("dashboard.growingText")
                       : t("dashboard.readyText2")}
                   </p>
                   <div className="summary-id">
-                    <small>{p.official && p.latest ? t("dashboard.passportId") : t("dashboard.issuanceStatus")}</small>
-                    <code>{p.official && p.latest && p.passportId ? p.passportId : t("dashboard.noId")}</code>
+                    <small>{issued && p.latest ? t("dashboard.passportId") : t("dashboard.issuanceStatus")}</small>
+                    <code>{issued && p.latest && p.passportId ? p.passportId : t("dashboard.noId")}</code>
                   </div>
                   <Link className="button secondary" href="/passport">
                     {t("dashboard.viewMy")}
